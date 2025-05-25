@@ -41,7 +41,6 @@ if (!MONGODB_URI) {
   mongoose.connect(MONGODB_URI, {
     serverSelectionTimeoutMS: 5000, // Timeout después de 5s en lugar de 30s
     socketTimeoutMS: 45000, // Cerrar sockets después de 45s de inactividad
-    bufferMaxEntries: 0, // Deshabilitar mongoose buffering
     bufferCommands: false, // Deshabilitar mongoose buffering
   })
   .then(() => {
