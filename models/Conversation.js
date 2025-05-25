@@ -9,6 +9,10 @@ const conversationSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  sessionId: {
+    type: String,
+    required: false
+  },
   createdAt: {
     type: Date,
     default: Date.now

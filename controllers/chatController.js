@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import Conversation from '../models/Conversation.js';
+import Patient from '../models/Patient.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -21,10 +22,20 @@ try {
 // Generar respuesta de ChatGPT
 export const generateChatResponse = async (req, res) => {
   try {
-    const { prompt } = req.body;
+    const { prompt, sessionId } = req.body;
 
     if (!prompt) {
       return res.status(400).json({ error: 'El prompt es requerido' });
+    }
+
+    if (!sessionId) {
+      return res.status(400).json({ error: 'SessionId es requerido' });
+    }
+
+    // Verificar que el paciente esté registrado
+    const patient = await Patient.findOne({ sessionId });
+    if (!patient) {
+      return res.status(401).json({ error: 'Paciente no registrado. Por favor complete el registro primero.' });
     }
 
     if (!openai) {
@@ -40,20 +51,21 @@ export const generateChatResponse = async (req, res) => {
       messages: [
         { 
           role: "system", 
-          content: "Eres un asistente amigable y útil. Tus respuestas deben ser concisas (máximo 100 palabras), claras e incluir emojis relevantes. Usa párrafos cortos para mejor legibilidad." 
+          content: `Eres la Dra. Clara, una asistente médica virtual amigable y profesional. Estás atendiendo a ${patient.name}, ${patient.gender}, ${patient.age} años. Tus respuestas deben ser concisas (máximo 150 palabras), claras, empáticas e incluir emojis relevantes. Usa párrafos cortos para mejor legibilidad. Siempre recuerda que NO puedes dar diagnósticos definitivos y debes recomendar consultar con un médico presencial para casos serios.` 
         },
         { role: "user", content: prompt }
       ],
-      max_tokens: 300, // Limitar tokens para respuestas más cortas
-      temperature: 0.7, // Mantener algo de creatividad
+      max_tokens: 400,
+      temperature: 0.7,
     });
 
     const response = completion.choices[0].message.content;
 
-    // Guardar la conversación en la base de datos
+    // Guardar la conversación en la base de datos con sessionId
     const conversation = new Conversation({
       prompt,
       response,
+      sessionId
     });
 
     await conversation.save();
@@ -71,10 +83,99 @@ export const generateChatResponse = async (req, res) => {
 // Obtener historial de conversaciones
 export const getConversationHistory = async (req, res) => {
   try {
-    const conversations = await Conversation.find().sort({ createdAt: -1 }).limit(10);
+    const { sessionId } = req.query;
+    
+    let query = {};
+    if (sessionId) {
+      query.sessionId = sessionId;
+    }
+    
+    const conversations = await Conversation.find(query).sort({ createdAt: -1 }).limit(20);
     res.json(conversations);
   } catch (error) {
     console.error('Error al obtener el historial:', error);
     res.status(500).json({ error: 'Error al obtener el historial de conversaciones' });
+  }
+};
+
+// Registrar o actualizar paciente
+export const registerPatient = async (req, res) => {
+  try {
+    const { patientId, name, age, gender, email, phone, sessionId } = req.body;
+
+    if (!patientId || !name || !age || !gender || !sessionId) {
+      return res.status(400).json({ error: 'Faltan campos obligatorios' });
+    }
+
+    // Verificar si el paciente ya existe
+    let patient = await Patient.findOne({ patientId });
+    
+    if (patient) {
+      // Actualizar paciente existente con nueva sesión
+      patient.sessionId = sessionId;
+      patient.consultationCount += 1;
+      patient.lastSession = new Date();
+      await patient.save();
+    } else {
+      // Crear nuevo paciente
+      patient = new Patient({
+        patientId,
+        name,
+        age,
+        gender,
+        email,
+        phone,
+        sessionId,
+        consultationCount: 1
+      });
+      await patient.save();
+    }
+
+    res.json({
+      patient,
+      message: `¡Hola ${name}! Soy la Dra. Clara, tu asistente médica virtual. ¿En qué puedo ayudarte hoy? 👩‍⚕️`
+    });
+
+  } catch (error) {
+    console.error('Error al registrar paciente:', error);
+    res.status(500).json({ error: 'Error al registrar paciente' });
+  }
+};
+
+// Buscar paciente por ID
+export const findPatient = async (req, res) => {
+  try {
+    const { patientId } = req.params;
+    
+    const patient = await Patient.findOne({ patientId });
+    
+    if (!patient) {
+      return res.status(404).json({ error: 'Paciente no encontrado' });
+    }
+
+    res.json(patient);
+
+  } catch (error) {
+    console.error('Error al buscar paciente:', error);
+    res.status(500).json({ error: 'Error al buscar paciente' });
+  }
+};
+
+// Obtener paciente por sesión
+export const getPatientBySession = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    
+    const patient = await Patient.findOne({ sessionId });
+    
+    if (!patient) {
+      return res.status(404).json({ error: 'Paciente no registrado' });
+    }
+
+    res.json(patient);
+
+  } catch (error) {
+    console.error('Error al obtener paciente:', error);
+    res.status(500).json({ error: 'Error al obtener paciente' });
   }
 };

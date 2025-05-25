@@ -1,5 +1,11 @@
 import express from 'express';
-import { generateChatResponse, getConversationHistory } from '../controllers/chatController.js';
+import { 
+  generateChatResponse, 
+  getConversationHistory,
+  registerPatient,
+  findPatient,
+  getPatientBySession
+} from '../controllers/chatController.js';
 
 const router = express.Router();
 
@@ -7,5 +13,10 @@ const router = express.Router();
 router.post('/', generateChatResponse);
 // Ruta para obtener el historial de conversaciones
 router.get('/history', getConversationHistory);
+
+// Nuevas rutas para pacientes
+router.post('/register', registerPatient);
+router.get('/find/:patientId', findPatient);
+router.get('/patient/:sessionId', getPatientBySession);
 
 export { router };
