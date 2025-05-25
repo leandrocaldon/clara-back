@@ -88,27 +88,66 @@ export const generateChatResponse = async (req, res) => {
       });
     }
 
-    // Llamada a la API de OpenAI con modelo gpt-4o para respuestas más avanzadas
+    // Obtener historial completo del paciente (todas las sesiones)
+    const patientHistory = await Conversation.find({ 
+      $or: [
+        { sessionId }, // Conversaciones de la sesión actual
+        { patientId: patient.patientId } // Conversaciones de sesiones anteriores del mismo paciente
+      ]
+    }).sort({ createdAt: 1 }).limit(50); // Últimas 50 conversaciones
+
+    // Construir el contexto de conversación para OpenAI
+    const conversationMessages = [
+      { 
+        role: "system", 
+        content: `Eres la Dra. Clara, una asistente médica virtual amigable y profesional. 
+
+INFORMACIÓN DEL PACIENTE:
+- Nombre: ${patient.name}
+- Género: ${patient.gender}
+- Edad: ${patient.age} años
+- Consulta número: ${patient.consultationCount}
+- ID del paciente: ${patient.patientId}
+
+INSTRUCCIONES:
+- Tus respuestas deben ser concisas (máximo 150 palabras), claras y empáticas
+- Incluye emojis relevantes y usa párrafos cortos para mejor legibilidad
+- RECUERDA las consultas anteriores del paciente para dar seguimiento personalizado
+- Si es una consulta de seguimiento, menciona brevemente la consulta anterior
+- NO puedes dar diagnósticos definitivos
+- Siempre recomienda consultar con un médico presencial para casos serios
+- Si detectas síntomas graves, enfatiza la importancia de atención médica inmediata` 
+      }
+    ];
+
+    // Agregar historial de conversaciones previas (máximo 10 intercambios recientes)
+    const recentHistory = patientHistory.slice(-20); // Últimos 20 mensajes (10 intercambios)
+    recentHistory.forEach(conv => {
+      conversationMessages.push(
+        { role: "user", content: conv.prompt },
+        { role: "assistant", content: conv.response }
+      );
+    });
+
+    // Agregar el mensaje actual del usuario
+    conversationMessages.push({ role: "user", content: prompt });
+
+    // Llamada a la API de OpenAI con historial completo
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      messages: [
-        { 
-          role: "system", 
-          content: `Eres la Dra. Clara, una asistente médica virtual amigable y profesional. Estás atendiendo a ${patient.name}, ${patient.gender}, ${patient.age} años. Tus respuestas deben ser concisas (máximo 150 palabras), claras, empáticas e incluir emojis relevantes. Usa párrafos cortos para mejor legibilidad. Siempre recuerda que NO puedes dar diagnósticos definitivos y debes recomendar consultar con un médico presencial para casos serios.` 
-        },
-        { role: "user", content: prompt }
-      ],
+      messages: conversationMessages,
       max_tokens: 400,
       temperature: 0.7,
     });
 
     const response = completion.choices[0].message.content;
 
-    // Guardar la conversación en la base de datos con sessionId
+    // Guardar la conversación en la base de datos con sessionId y patientId
     const conversation = new Conversation({
       prompt,
       response,
-      sessionId
+      sessionId,
+      patientId: patient.patientId // Agregar patientId para historial completo
     });
 
     await conversation.save();
@@ -129,14 +168,22 @@ export const getConversationHistory = async (req, res) => {
     // Verificar conexión a MongoDB antes de hacer consultas
     await ensureMongoConnection();
     
-    const { sessionId } = req.query;
+    const { sessionId, patientId, includeAllSessions } = req.query;
     
     let query = {};
-    if (sessionId) {
+    
+    if (includeAllSessions === 'true' && patientId) {
+      // Obtener todas las conversaciones del paciente (todas las sesiones)
+      query.patientId = patientId;
+    } else if (sessionId) {
+      // Obtener solo conversaciones de la sesión actual
       query.sessionId = sessionId;
     }
     
-    const conversations = await Conversation.find(query).sort({ createdAt: -1 }).limit(20);
+    const conversations = await Conversation.find(query)
+      .sort({ createdAt: -1 })
+      .limit(50); // Aumentar límite para historial completo
+    
     res.json(conversations);
   } catch (error) {
     console.error('Error al obtener el historial:', error);

@@ -19,4 +19,7 @@ router.post('/register', registerPatient);
 router.get('/find/:patientId', findPatient);
 router.get('/patient/:sessionId', getPatientBySession);
 
+// Ruta para obtener historial completo del paciente (todas las sesiones)
+router.get('/patient/:patientId/history', getConversationHistory);
+
 export { router };
